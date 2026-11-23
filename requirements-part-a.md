@@ -1,6 +1,5 @@
 # PayLink – Requirements Pack (Part A)
 
-> Author: Member 1 (Requirements Part A). Member 2 merges this file with Part B into `docs/requirements.md`.
 > Covers: Problem Summary, Stakeholders, User Stories for FR-1 → FR-14.
 
 ## 1. Problem Summary
