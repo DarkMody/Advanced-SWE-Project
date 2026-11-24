@@ -1,0 +1,166 @@
+@startuml PayLink_UseCase_Diagram
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam actorStyle awesome
+skinparam linetype ortho
+skinparam nodesep 25
+skinparam ranksep 60
+
+' Assumption (FR-2 / US-03): Customer requests verification upgrade and an authorized staff member (Admin/Support) approves it, or KYC approval is recorded.
+' Assumption (FR-20, FR-21, FR-25 / US-43, US-48, US-59): Admin and Support Employee share payment search, account block/unblock, and manual refund approval permissions.
+
+actor "Customer" as Customer
+actor "Agent" as Agent
+actor "Admin" as Admin
+actor "Support Employee" as Support
+
+actor "Payment Gateway\n(Card Simulator)" as CardGW <<External System>>
+actor "Biller\n(ElectroCo / AquaCo / TopUpNet)" as Biller <<External System>>
+actor "Notification Provider\n(SMS / Push / Email)" as NotifProvider <<External System>>
+
+rectangle "PayLink System" {
+
+  package "Account Management" {
+    usecase "Register Account" as UC_Register
+    usecase "View Profile & Limits" as UC_ViewProfile
+    usecase "Upgrade Account to Verified" as UC_UpgradeKyc
+  }
+
+  package "Wallet Management" {
+    usecase "View Wallet Balance\n(Available & Held)" as UC_ViewBalance
+    usecase "View Transaction History" as UC_ViewHistory
+    usecase "Top Up Wallet by Card" as UC_TopUpCard
+  }
+
+  package "Bill Inquiry" {
+    usecase "Browse Active Billers & Services" as UC_BrowseBillers
+    usecase "Inquire Bill Details & Fee" as UC_BillInquiry
+  }
+
+  package "Bill Payment" {
+    usecase "Pay Bill from Wallet" as UC_PayBill
+    usecase "Validate Limits & Velocity" as UC_ValidateLimits
+    usecase "Hold & Settle Wallet Funds" as UC_HoldFunds
+    usecase "Process Biller Callback" as UC_ProcessCallback
+    usecase "Re-query Unknown Payments" as UC_RequeryUnknown
+  }
+
+  package "Agent Operations" {
+    usecase "Top Up Customer Wallet (Cash)" as UC_AgentTopUp
+    usecase "Pay Bill on Behalf of Customer" as UC_AgentPayBill
+    usecase "Credit Agent Commission" as UC_AgentCommission
+  }
+
+  package "Biller Management" {
+    usecase "Add / Edit Biller & Service" as UC_ManageBiller
+    usecase "Disable Biller" as UC_DisableBiller
+  }
+
+  package "Payment Monitoring & Refunds" {
+    usecase "Search Payment by Reference" as UC_SearchPayment
+    usecase "Inspect Full Payment History" as UC_InspectHistory
+    usecase "Approve & Issue Payment Refund" as UC_ApproveRefund
+  }
+
+  package "Account Blocking" {
+    usecase "Block Account" as UC_BlockAccount
+    usecase "Unblock Account" as UC_UnblockAccount
+    usecase "Auto-Block on Velocity Breach" as UC_AutoBlock
+  }
+
+  package "Notifications" {
+    usecase "Send Notification" as UC_SendNotif
+    usecase "Retry Failed Notifications" as UC_RetryNotif
+  }
+
+  package "Configuration Management" {
+    usecase "Configure Fee Rules & Promotions" as UC_ConfigFees
+    usecase "Configure Payment & Daily Limits" as UC_ConfigLimits
+    usecase "Manage System Parameters\n(Timeouts, Retries, Velocity)" as UC_ConfigSystem
+  }
+
+  package "Audit Management" {
+    usecase "Search & View Audit Log" as UC_ViewAudit
+    usecase "Record Audit Trail" as UC_RecordAudit
+  }
+}
+
+' Customer Associations
+Customer -[#1E88E5]-> UC_Register
+Customer -[#1E88E5]-> UC_ViewProfile
+Customer -[#1E88E5]-> UC_UpgradeKyc
+Customer -[#1E88E5]-> UC_ViewBalance
+Customer -[#1E88E5]-> UC_ViewHistory
+Customer -[#1E88E5]-> UC_TopUpCard
+Customer -[#1E88E5]-> UC_BrowseBillers
+Customer -[#1E88E5]-> UC_BillInquiry
+Customer -[#1E88E5]-> UC_PayBill
+
+' Agent Associations
+Agent -[#43A047]-> UC_ViewBalance
+Agent -[#43A047]-> UC_ViewHistory
+Agent -[#43A047]-> UC_BrowseBillers
+Agent -[#43A047]-> UC_BillInquiry
+Agent -[#43A047]-> UC_AgentTopUp
+Agent -[#43A047]-> UC_AgentPayBill
+
+' Admin Associations
+Admin -[#8E24AA]-> UC_ManageBiller
+Admin -[#8E24AA]-> UC_DisableBiller
+Admin -[#8E24AA]-> UC_ConfigFees
+Admin -[#8E24AA]-> UC_ConfigLimits
+Admin -[#8E24AA]-> UC_ConfigSystem
+Admin -[#8E24AA]-> UC_ViewAudit
+Admin -[#8E24AA]-> UC_SearchPayment
+Admin -[#8E24AA]-> UC_BlockAccount
+Admin -[#8E24AA]-> UC_UnblockAccount
+Admin -[#8E24AA]-> UC_ApproveRefund
+
+' Support Employee Associations
+Support -[#FB8C00]-> UC_SearchPayment
+Support -[#FB8C00]-> UC_InspectHistory
+Support -[#FB8C00]-> UC_BlockAccount
+Support -[#FB8C00]-> UC_UnblockAccount
+Support -[#FB8C00]-> UC_ApproveRefund
+
+' External System Associations
+UC_TopUpCard -[#546E7A]-> CardGW
+UC_BillInquiry -[#546E7A]-> Biller
+UC_PayBill -[#546E7A]-> Biller
+UC_RequeryUnknown -[#546E7A]-> Biller
+Biller -[#00897B]-> UC_ProcessCallback
+UC_SendNotif -[#546E7A]-> NotifProvider
+UC_RetryNotif -[#546E7A]-> NotifProvider
+
+' Include & Extend Relationships
+UC_PayBill ..> UC_ValidateLimits : <<include>>
+UC_PayBill ..> UC_HoldFunds : <<include>>
+UC_AgentPayBill ..> UC_PayBill : <<include>>
+UC_AgentCommission ..> UC_AgentPayBill : <<extend>>\n[payment completed]
+UC_AutoBlock ..> UC_ValidateLimits : <<extend>>\n[>5 attempts in 60s]
+
+UC_InspectHistory ..> UC_SearchPayment : <<extend>>
+UC_ProcessCallback ..> UC_HoldFunds : <<include>>
+UC_RequeryUnknown ..> UC_HoldFunds : <<include>>
+UC_ApproveRefund ..> UC_HoldFunds : <<include>>
+
+UC_PayBill ..> UC_SendNotif : <<include>>
+UC_BlockAccount ..> UC_SendNotif : <<include>>
+UC_UnblockAccount ..> UC_SendNotif : <<include>>
+UC_ApproveRefund ..> UC_SendNotif : <<include>>
+UC_RetryNotif ..> UC_SendNotif : <<extend>>\n[temporary failure, max 3 retries]
+
+UC_HoldFunds .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_ManageBiller .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_DisableBiller .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_ConfigFees .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_ConfigLimits .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_ConfigSystem .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_BlockAccount .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_UnblockAccount .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_SearchPayment .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_UpgradeKyc .[#90A4AE].> UC_RecordAudit : <<include>>
+UC_ApproveRefund .[#90A4AE].> UC_RecordAudit : <<include>>
+
+@enduml

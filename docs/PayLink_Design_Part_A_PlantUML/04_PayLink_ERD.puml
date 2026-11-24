@@ -1,0 +1,294 @@
+@startuml PayLink_ERD
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+
+entity "Users" as Users {
+  * Id : UUID <<PK>>
+  --
+  * Role : VARCHAR(20) <<NOT NULL>>
+  * FullName : VARCHAR(150) <<NOT NULL>>
+  * PhoneNumber : VARCHAR(20) <<UNIQUE, NOT NULL>>
+  * PasswordHash : VARCHAR(255) <<NOT NULL>>
+  * TerminalCode : VARCHAR(50) <<UNIQUE, NULL>>
+  * IsActive : BOOLEAN <<NOT NULL>>
+  * CreatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "Accounts" as Accounts {
+  * Id : UUID <<PK>>
+  --
+  * UserId : UUID <<FK, UNIQUE, NOT NULL>>
+  * Status : VARCHAR(20) <<NOT NULL>>
+  * VerificationLevel : VARCHAR(20) <<NOT NULL>>
+  * CreatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+  * UpdatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "Wallets" as Wallets {
+  * Id : UUID <<PK>>
+  --
+  * AccountId : UUID <<FK, UNIQUE, NOT NULL>>
+  * Currency : CHAR(3) <<NOT NULL, DEFAULT 'EGP'>>
+  * CreatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "LedgerEntries" as LedgerEntries {
+  * Id : UUID <<PK>>
+  --
+  * WalletId : UUID <<FK, NOT NULL>>
+  * PaymentId : UUID <<FK, NULL>>
+  * InitiatingAgentUserId : UUID <<FK, NULL>>
+  * EntryType : VARCHAR(30) <<NOT NULL>>
+  * AvailableDelta : DECIMAL(18,2) <<NOT NULL>>
+  * HeldDelta : DECIMAL(18,2) <<NOT NULL>>
+  * CreatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "AuditRecords" as AuditRecords {
+  * Id : UUID <<PK>>
+  --
+  * LedgerEntryId : UUID <<FK, UNIQUE, NULL>>
+  * ActorUserId : UUID <<FK, NULL>>
+  * ActorType : VARCHAR(20) <<NOT NULL>>
+  * Action : VARCHAR(60) <<NOT NULL>>
+  * EntityType : VARCHAR(50) <<NOT NULL>>
+  * EntityId : VARCHAR(64) <<NOT NULL>>
+  * OldValueJson : TEXT <<NULL>>
+  * NewValueJson : TEXT <<NULL>>
+  * Reason : VARCHAR(500) <<NOT NULL>>
+  * OccurredAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "Billers" as Billers {
+  * Id : UUID <<PK>>
+  --
+  * Code : VARCHAR(30) <<UNIQUE, NOT NULL>>
+  * Name : VARCHAR(100) <<NOT NULL>>
+  * ProtocolType : VARCHAR(30) <<NOT NULL>>
+  * IsActive : BOOLEAN <<NOT NULL>>
+  * CreatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "Services" as Services {
+  * Id : UUID <<PK>>
+  --
+  * BillerId : UUID <<FK, NOT NULL>>
+  * Name : VARCHAR(100) <<NOT NULL>>
+  * ServiceType : VARCHAR(30) <<NOT NULL>>
+  * RequiredFieldsSchema : JSONB <<NOT NULL>>
+  * MinAmount : DECIMAL(18,2) <<NOT NULL>>
+  * MaxAmount : DECIMAL(18,2) <<NOT NULL>>
+  * IsActive : BOOLEAN <<NOT NULL>>
+}
+
+entity "FeeRules" as FeeRules {
+  * Id : UUID <<PK>>
+  --
+  * ServiceId : UUID <<FK, UNIQUE(ServiceId, Version), NOT NULL>>
+  * CalculationType : VARCHAR(30) <<NOT NULL>>
+  * FixedAmount : DECIMAL(18,2) <<NULL>>
+  * PercentageRate : DECIMAL(5,4) <<NULL>>
+  * MinFeeAmount : DECIMAL(18,2) <<NULL>>
+  * TierThreshold : DECIMAL(18,2) <<NULL>>
+  * TierLowFee : DECIMAL(18,2) <<NULL>>
+  * TierHighFee : DECIMAL(18,2) <<NULL>>
+  * Version : INT <<UNIQUE(ServiceId, Version), NOT NULL, DEFAULT 1>>
+  * EffectiveFromUtc : TIMESTAMP(3) <<NOT NULL>>
+  * EffectiveToUtc : TIMESTAMP(3) <<NULL>>
+  * UpdatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "Promotions" as Promotions {
+  * Id : UUID <<PK>>
+  --
+  * BillerId : UUID <<FK, NOT NULL>>
+  * Name : VARCHAR(100) <<NOT NULL>>
+  * StartDateUtc : TIMESTAMP(3) <<NOT NULL>>
+  * EndDateUtc : TIMESTAMP(3) <<NOT NULL>>
+  * IsActive : BOOLEAN <<NOT NULL>>
+}
+
+entity "PaymentLimits" as PaymentLimits {
+  * Id : UUID <<PK>>
+  --
+  * VerificationLevel : VARCHAR(20) <<UNIQUE, NOT NULL>>
+  * MinPaymentAmount : DECIMAL(18,2) <<NOT NULL>>
+  * MaxPaymentAmount : DECIMAL(18,2) <<NOT NULL>>
+  * DailyLimitAmount : DECIMAL(18,2) <<NOT NULL>>
+  * Version : INT <<NOT NULL, DEFAULT 1>>
+}
+
+entity "SystemConfigurations" as SystemConfigurations {
+  * ConfigKey : VARCHAR(80) <<PK>>
+  --
+  * ConfigValue : VARCHAR(255) <<NOT NULL>>
+  * Description : VARCHAR(255) <<NOT NULL>>
+  * Version : INT <<NOT NULL, DEFAULT 1>>
+  * UpdatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "Payments" as Payments {
+  * Id : UUID <<PK>>
+  --
+  * PaymentReference : VARCHAR(40) <<UNIQUE, NOT NULL>>
+  * BillerReference : VARCHAR(80) <<NULL>>
+  * CustomerAccountId : UUID <<FK, NOT NULL>>
+  * InitiatingAgentAccountId : UUID <<FK, NULL>>
+  * ServiceId : UUID <<FK, NOT NULL>>
+  * CustomerIdentifierMasked : VARCHAR(64) <<NOT NULL>>
+  * CustomerInputEncrypted : TEXT <<NOT NULL>>
+  * PrincipalAmount : DECIMAL(18,2) <<NOT NULL>>
+  * FeeAmount : DECIMAL(18,2) <<NOT NULL>>
+  * TotalAmount : DECIMAL(18,2) <<NOT NULL>>
+  * AgentCommissionAmount : DECIMAL(18,2) <<NOT NULL>>
+  * State : VARCHAR(20) <<NOT NULL>>
+  * FailureReason : VARCHAR(255) <<NULL>>
+  * IsReconciliationFlagged : BOOLEAN <<NOT NULL, DEFAULT FALSE>>
+  * ReconciliationNote : VARCHAR(255) <<NULL>>
+  * CreatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+  * UpdatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "PaymentStateTransitions" as PaymentStateTransitions {
+  * Id : UUID <<PK>>
+  --
+  * PaymentId : UUID <<FK, NOT NULL>>
+  * FromState : VARCHAR(20) <<NULL>>
+  * ToState : VARCHAR(20) <<NOT NULL>>
+  * Reason : VARCHAR(255) <<NOT NULL>>
+  * TransitionedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "PaymentSubmissionAttempts" as PaymentSubmissionAttempts {
+  * Id : UUID <<PK>>
+  --
+  * CustomerAccountId : UUID <<FK, NOT NULL>>
+  * InitiatingAgentAccountId : UUID <<FK, NULL>>
+  * IdempotencyKey : VARCHAR(100) <<NOT NULL>>
+  * PaymentId : UUID <<FK, UNIQUE, NULL>>
+  * WasRejected : BOOLEAN <<NOT NULL>>
+  * RejectionReason : VARCHAR(255) <<NULL>>
+  * SubmittedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "PaymentAttempts" as PaymentAttempts {
+  * Id : UUID <<PK>>
+  --
+  * PaymentId : UUID <<FK, NOT NULL>>
+  * AttemptNumber : INT <<NOT NULL>>
+  * AttemptType : VARCHAR(20) <<NOT NULL>>
+  * RequestPayload : TEXT <<NULL>>
+  * ResponsePayload : TEXT <<NULL>>
+  * Outcome : VARCHAR(30) <<NOT NULL>>
+  * IsDuplicateCallback : BOOLEAN <<NOT NULL, DEFAULT FALSE>>
+  * AttemptedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "IdempotencyRecords" as IdempotencyRecords {
+  * Id : UUID <<PK>>
+  --
+  * CustomerAccountId : UUID <<FK, UNIQUE(CustomerAccountId, IdempotencyKey), NOT NULL>>
+  * IdempotencyKey : VARCHAR(100) <<UNIQUE(CustomerAccountId, IdempotencyKey), NOT NULL>>
+  * RequestHash : VARCHAR(64) <<NOT NULL>>
+  * PaymentId : UUID <<FK, UNIQUE, NULL>>
+  * ResponseSnapshot : TEXT <<NULL>>
+  * CreatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "AccountBlocks" as AccountBlocks {
+  * Id : UUID <<PK>>
+  --
+  * AccountId : UUID <<FK, NOT NULL>>
+  * BlockType : VARCHAR(20) <<NOT NULL>>
+  * Reason : VARCHAR(255) <<NOT NULL>>
+  * BlockedByUserId : UUID <<FK, NULL>>
+  * BlockedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+  * ExpiresAtUtc : TIMESTAMP(3) <<NULL>>
+  * UnblockedAtUtc : TIMESTAMP(3) <<NULL>>
+  * UnblockedByUserId : UUID <<FK, NULL>>
+}
+
+entity "Notifications" as Notifications {
+  * Id : UUID <<PK>>
+  --
+  * UserId : UUID <<FK, NOT NULL>>
+  * PaymentId : UUID <<FK, NULL>>
+  * Channel : VARCHAR(15) <<NOT NULL>>
+  * EventType : VARCHAR(40) <<NOT NULL>>
+  * RenderedBody : TEXT <<NOT NULL>>
+  * Status : VARCHAR(20) <<NOT NULL>>
+  * AttemptCount : INT <<NOT NULL, DEFAULT 0>>
+  * NextRetryAtUtc : TIMESTAMP(3) <<NULL>>
+  * CreatedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+entity "NotificationAttempts" as NotificationAttempts {
+  * Id : UUID <<PK>>
+  --
+  * NotificationId : UUID <<FK, NOT NULL>>
+  * AttemptNumber : INT <<NOT NULL>>
+  * IsSuccess : BOOLEAN <<NOT NULL>>
+  * IsPermanentError : BOOLEAN <<NOT NULL>>
+  * ErrorMessage : VARCHAR(255) <<NULL>>
+  * AttemptedAtUtc : TIMESTAMP(3) <<NOT NULL>>
+}
+
+Users ||--o| Accounts : "has (Customer/Agent)"
+Accounts ||--|| Wallets : "owns"
+Wallets ||--o{ LedgerEntries : "contains"
+Users ||--o{ LedgerEntries : "agent top-up source"
+Payments ||--o{ LedgerEntries : "records movement"
+LedgerEntries |o--|| AuditRecords : "1-to-1 audit"
+Users ||--o{ AuditRecords : "actor"
+
+Billers ||--|{ Services : "provides"
+Services ||--|{ FeeRules : "pricing history"
+Billers ||--o{ Promotions : "has promos"
+
+Accounts ||--o{ Payments : "customer"
+Accounts |o--o{ Payments : "initiating agent"
+Services ||--o{ Payments : "service paid"
+
+Accounts ||--o{ PaymentSubmissionAttempts : "customer submissions"
+Accounts |o--o{ PaymentSubmissionAttempts : "agent submissions"
+Payments |o--o| PaymentSubmissionAttempts : "created from"
+
+Payments ||--|{ PaymentStateTransitions : "transitions"
+Payments ||--o{ PaymentAttempts : "biller calls/callbacks"
+Accounts ||--o{ IdempotencyRecords : "scoped to customer"
+Payments |o--o| IdempotencyRecords : "deduplicates"
+
+Accounts ||--o{ AccountBlocks : "blocks"
+Users ||--o{ AccountBlocks : "blocked/unblocked by"
+
+Users ||--o{ Notifications : "recipient"
+Payments |o--o{ Notifications : "event source"
+Notifications ||--o{ NotificationAttempts : "delivery tries"
+
+note right of FeeRules
+  UNIQUE(ServiceId, Version) preserves historical
+  fee rules; active rule has EffectiveToUtc IS NULL.
+end note
+
+note right of IdempotencyRecords
+  UNIQUE(CustomerAccountId, IdempotencyKey) scopes
+  idempotency to the customer account (including
+  agent submissions) and returns ResponseSnapshot
+  on retry without inserting a new velocity attempt.
+end note
+
+note right of PaymentSubmissionAttempts
+  Records accepted (PaymentId NOT NULL) and
+  pre-creation rejected (PaymentId IS NULL,
+  WasRejected = TRUE) non-duplicate submissions
+  to enforce the customer 60s velocity window.
+end note
+
+note right of AuditRecords
+  Every LedgerEntry links to exactly one AuditRecord
+  (LedgerEntryId UNIQUE), while non-financial events
+  insert AuditRecords with LedgerEntryId IS NULL.
+end note
+
+@enduml

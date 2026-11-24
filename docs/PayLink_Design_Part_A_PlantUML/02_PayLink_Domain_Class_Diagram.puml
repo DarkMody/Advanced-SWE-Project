@@ -1,0 +1,417 @@
+@startuml PayLink_Domain_Class_Diagram
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+
+package "Identity & Accounts" {
+  abstract class User {
+    +Id : Guid
+    +FullName : string
+    +PhoneNumber : string
+    +PasswordHash : string
+    +CreatedAtUtc : DateTime
+    +GetMaskedPhone() : string
+  }
+
+  class Customer {
+  }
+
+  class Agent {
+    +TerminalCode : string
+    +IsActive : bool
+  }
+
+  class Admin {
+  }
+
+  class SupportEmployee {
+  }
+
+  enum VerificationLevel {
+    Basic
+    Verified
+  }
+
+  enum AccountStatus {
+    Active
+    Blocked
+  }
+
+  class Account {
+    +Id : Guid
+    +UserId : Guid
+    +Status : AccountStatus
+    +VerificationLevel : VerificationLevel
+    +CreatedAtUtc : DateTime
+    +CanTransact(isAgentAction : bool) : bool
+  }
+
+  User <|-- Customer
+  User <|-- Agent
+  User <|-- Admin
+  User <|-- SupportEmployee
+
+  Customer "1" *-- "1" Account : owns >
+  Agent "1" *-- "1" Account : owns >
+  Account --> VerificationLevel
+  Account --> AccountStatus
+}
+
+package "Wallet & Financial Management" {
+  class Wallet {
+    +Id : Guid
+    +AccountId : Guid
+    +Currency : string = "EGP"
+    +GetAvailableBalance() : decimal
+    +GetHeldBalance() : decimal
+    +CanHold(amount : decimal) : bool
+  }
+
+  enum LedgerEntryType {
+    TopUpCard
+    TopUpAgentCash
+    Hold
+    ReleaseHold
+    FinalCharge
+    FeeIncome
+    AgentCommission
+    Refund
+  }
+
+  class LedgerEntry {
+    +Id : Guid
+    +WalletId : Guid
+    +PaymentId : Guid?
+    +InitiatingAgentUserId : Guid?
+    +EntryType : LedgerEntryType
+    +AvailableDelta : decimal
+    +HeldDelta : decimal
+    +CreatedAtUtc : DateTime
+  }
+
+  class AuditRecord {
+    +Id : Guid
+    +LedgerEntryId : Guid?
+    +ActorUserId : Guid?
+    +ActorType : string
+    +Action : string
+    +EntityType : string
+    +EntityId : string
+    +OldValueJson : string?
+    +NewValueJson : string?
+    +Reason : string
+    +OccurredAtUtc : DateTime
+  }
+
+  Account "1" *-- "1" Wallet : has >
+  Wallet "1" o-- "0..*" LedgerEntry : records >
+  LedgerEntry --> LedgerEntryType
+  LedgerEntry "0..1" -- "1" AuditRecord : traced by >
+  User "0..1" -- "0..*" AuditRecord : performs >
+}
+
+package "Payments" {
+  enum PaymentState {
+    Initiated
+    FundsHeld
+    SentToBiller
+    Completed
+    Failed
+    Unknown
+    Refunded
+    Rejected
+  }
+
+  class Payment {
+    +Id : Guid
+    +PaymentReference : string
+    +BillerReference : string?
+    +CustomerAccountId : Guid
+    +InitiatingAgentAccountId : Guid?
+    +ServiceId : Guid
+    +CustomerInputData : string
+    +PrincipalAmount : decimal
+    +FeeAmount : decimal
+    +TotalAmount : decimal
+    +AgentCommissionAmount : decimal
+    +State : PaymentState
+    +FailureReason : string?
+    +IsReconciliationFlagged : bool
+    +ReconciliationNote : string?
+    +CreatedAtUtc : DateTime
+    +UpdatedAtUtc : DateTime
+    +HoldFunds() : void
+    +MarkSentToBiller() : void
+    +Complete(billerRef : string) : void
+    +Fail(reason : string) : void
+    +MarkUnknown() : void
+    +ApproveRefund(supportUserId : Guid, reason : string) : void
+    +Refund() : void
+    +Reject(reason : string) : void
+  }
+
+  class PaymentStateTransition {
+    +Id : Guid
+    +PaymentId : Guid
+    +FromState : PaymentState?
+    +ToState : PaymentState
+    +Reason : string
+    +TransitionedAtUtc : DateTime
+  }
+
+  class PaymentSubmissionAttempt {
+    +Id : Guid
+    +CustomerAccountId : Guid
+    +InitiatingAgentAccountId : Guid?
+    +IdempotencyKey : string
+    +PaymentId : Guid?
+    +WasRejected : bool
+    +RejectionReason : string?
+    +SubmittedAtUtc : DateTime
+  }
+
+  enum BillerCallType {
+    InitialCall
+    Requery
+    AsyncCallback
+  }
+
+  class PaymentAttempt {
+    +Id : Guid
+    +PaymentId : Guid
+    +AttemptNumber : int
+    +CallType : BillerCallType
+    +RequestPayload : string?
+    +ResponsePayload : string?
+    +Outcome : string
+    +IsDuplicateCallback : bool
+    +AttemptedAtUtc : DateTime
+  }
+
+  class IdempotencyRecord {
+    +Id : Guid
+    +IdempotencyKey : string
+    +AccountId : Guid
+    +RequestHash : string
+    +PaymentId : Guid?
+    +ResponseSnapshot : string?
+    +CreatedAtUtc : DateTime
+  }
+
+  Account "1" -- "0..*" Payment : customer >
+  Account "0..1" -- "0..*" Payment : initiatingAgent >
+  Payment --> PaymentState
+  Payment "1" *-- "1..*" PaymentStateTransition : history >
+  Payment "1" *-- "0..*" PaymentAttempt : billerCalls >
+  PaymentAttempt --> BillerCallType
+  Payment "1" -- "0..*" LedgerEntry : generates >
+
+  Account "1" -- "0..*" PaymentSubmissionAttempt : customerSubmissions >
+  Account "0..1" -- "0..*" PaymentSubmissionAttempt : agentSubmissions >
+  PaymentSubmissionAttempt "0..1" --> "0..1" Payment : creates >
+
+  Account "1" -- "0..*" IdempotencyRecord : scopedTo >
+  IdempotencyRecord "0..1" --> "0..1" Payment : deduplicates >
+}
+
+package "Biller Management & Integration" {
+  class Biller {
+    +Id : Guid
+    +Code : string
+    +Name : string
+    +ProtocolType : string
+    +IsActive : bool
+  }
+
+  class Service {
+    +Id : Guid
+    +BillerId : Guid
+    +Name : string
+    +ServiceType : string
+    +RequiredFieldsSchema : string
+    +MinAmount : decimal
+    +MaxAmount : decimal
+    +IsActive : bool
+  }
+
+  class BillInquiry {
+    +BillerCode : string
+    +ServiceId : Guid
+    +CustomerIdentifier : string
+    +BillAmount : decimal
+    +CalculatedFee : decimal
+    +TotalAmount : decimal
+    +InquiredAtUtc : DateTime
+  }
+
+  enum BillerResponseStatus {
+    Confirmed
+    AcceptedAsync
+    Refused
+    Timeout
+    Unavailable
+  }
+
+  class BillerResponse {
+    +BillerCode : string
+    +PaymentReference : string
+    +BillerReference : string?
+    +Status : BillerResponseStatus
+    +ErrorCode : string?
+    +Message : string?
+    +RawPayload : string?
+    +ReceivedAtUtc : DateTime
+  }
+
+  interface IBillerAdapter {
+    +BillerCode : string
+    +InquireAsync(service : Service, input : string) : BillInquiry
+    +PayAsync(payment : Payment) : BillerResponse
+    +QueryStatusAsync(payment : Payment) : BillerResponse
+  }
+
+  class ElectroCoRestAdapter
+  class AquaCoSoapAdapter
+  class TopUpNetAsyncAdapter
+
+  Biller "1" *-- "1..*" Service : offers >
+  Service "1" -- "0..*" Payment : fulfills >
+  IBillerAdapter <|.. ElectroCoRestAdapter
+  IBillerAdapter <|.. AquaCoSoapAdapter
+  IBillerAdapter <|.. TopUpNetAsyncAdapter
+  IBillerAdapter ..> BillInquiry : creates >
+  IBillerAdapter ..> BillerResponse : returns >
+  BillerResponse --> BillerResponseStatus
+  IBillerAdapter ..> Payment : processes >
+}
+
+package "Fees & Configuration" {
+  enum FeeCalculationType {
+    Fixed
+    PercentageWithMin
+    Tiered
+  }
+
+  class FeeRule {
+    +Id : Guid
+    +ServiceId : Guid
+    +CalculationType : FeeCalculationType
+    +FixedAmount : decimal?
+    +PercentageRate : decimal?
+    +MinFeeAmount : decimal?
+    +TierThreshold : decimal?
+    +TierLowFee : decimal?
+    +TierHighFee : decimal?
+    +Version : int
+    +CalculateFee(principal : decimal) : decimal
+  }
+
+  class Promotion {
+    +Id : Guid
+    +BillerId : Guid
+    +Name : string
+    +StartDateUtc : DateTime
+    +EndDateUtc : DateTime
+    +IsActive : bool
+    +IsApplicable(nowUtc : DateTime) : bool
+  }
+
+  class PaymentLimit {
+    +Id : Guid
+    +VerificationLevel : VerificationLevel
+    +MinPaymentAmount : decimal
+    +MaxPaymentAmount : decimal
+    +DailyLimitAmount : decimal
+    +Version : int
+  }
+
+  class SystemConfiguration {
+    +Key : string
+    +Value : string
+    +Description : string
+    +Version : int
+    +UpdatedAtUtc : DateTime
+  }
+
+  Service "1" -- "1..*" FeeRule : pricing history >
+  FeeRule --> FeeCalculationType
+  Biller "1" -- "0..*" Promotion : discounted by >
+  PaymentLimit --> VerificationLevel
+}
+
+package "Notifications" {
+  enum NotificationChannel {
+    SMS
+    Push
+    Email
+  }
+
+  enum NotificationStatus {
+    Pending
+    Sent
+    Undelivered
+  }
+
+  class Notification {
+    +Id : Guid
+    +UserId : Guid
+    +PaymentId : Guid?
+    +Channel : NotificationChannel
+    +EventType : string
+    +RenderedBody : string
+    +Status : NotificationStatus
+    +AttemptCount : int
+    +NextRetryAtUtc : DateTime?
+    +CreatedAtUtc : DateTime
+  }
+
+  class NotificationAttempt {
+    +Id : Guid
+    +NotificationId : Guid
+    +AttemptNumber : int
+    +IsSuccess : bool
+    +IsPermanentError : bool
+    +ErrorMessage : string?
+    +AttemptedAtUtc : DateTime
+  }
+
+  User "1" -- "0..*" Notification : receives >
+  Payment "0..1" -- "0..*" Notification : triggers >
+  Notification "1" *-- "0..*" NotificationAttempt : tracks >
+  Notification --> NotificationChannel
+  Notification --> NotificationStatus
+}
+
+package "Account Security" {
+  enum BlockType {
+    VelocityAuto
+    SupportManual
+  }
+
+  class AccountBlock {
+    +Id : Guid
+    +AccountId : Guid
+    +BlockType : BlockType
+    +Reason : string
+    +BlockedByUserId : Guid?
+    +BlockedAtUtc : DateTime
+    +ExpiresAtUtc : DateTime?
+    +UnblockedAtUtc : DateTime?
+    +UnblockedByUserId : Guid?
+    +IsEffective(nowUtc : DateTime) : bool
+  }
+
+  class VelocityRule {
+    +MaxAttempts : int = 5
+    +WindowSeconds : int = 60
+    +BlockDurationMinutes : int = 10
+    +Evaluate(recentNonDuplicateSubmissionCount : int) : bool
+  }
+
+  Account "1" *-- "0..*" AccountBlock : restricted by >
+  AccountBlock --> BlockType
+  VelocityRule ..> PaymentSubmissionAttempt : counts >
+  VelocityRule ..> AccountBlock : triggers >
+}
+
+@enduml
