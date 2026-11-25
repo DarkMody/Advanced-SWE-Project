@@ -1,0 +1,71 @@
+@startuml PayLink_Payment_State_Diagram
+skinparam shadowing false
+skinparam state {
+  BackgroundColor<<Final>> #F2F4F8
+  BorderColor<<Final>> #2C3E50
+}
+
+[*] --> Initiated : SubmitPayment(idempotencyKey)\n[new key] / createPayment(), recordTransition(), writeAudit()
+
+state Initiated {
+  Initiated : entry / evaluateBlockVelocityLimitsAndBalance()
+}
+
+Initiated --> Rejected : ValidationFailed\n[accountBlocked OR velocityExceeded OR limitExceeded OR insufficientFunds]\n/ recordTransition(), writeAudit()
+
+Initiated --> FundsHeld : ValidationPassed\n[sufficientAvailableFunds]\n/ createHoldLedgerEntry(), recordTransition(), writeAudit()
+
+state FundsHeld {
+  FundsHeld : entry / invokeBillerAdapterAsync()
+}
+
+FundsHeld --> SentToBiller : BillerRequestDispatched\n/ logPaymentAttempt(InitialCall), recordTransition()
+
+state SentToBiller {
+  SentToBiller : awaiting synchronous response or TopUpNet async callback
+}
+
+SentToBiller --> Completed : BillerConfirmed / AsyncCallback("success")\n[valid & non-duplicate]\n/ finalizeChargeAndFeeLedger(), creditAgentCommissionIfAgent(),\n  recordTransition(), writeAudit(), enqueueNotification(Completed)
+
+SentToBiller --> Failed : BillerRefused / AsyncCallback("failed")\n[valid & non-duplicate]\n/ recordTransition(), writeAudit(), enqueueNotification(Failed)
+
+SentToBiller --> Unknown : BillerTimeout\n[elapsed > configuredTimeout (10s)]\n/ retainHeldFunds(), scheduleRequery(1m), recordTransition(), writeAudit()
+
+state Unknown {
+  Unknown : entry / holdFundsRetained()
+  Unknown --> Unknown : RequeryIntervalElapsed [attempt <= 3 (1m, 5m, 15m)]\n/ queryBillerStatus(), logPaymentAttempt(Requery)
+  Unknown --> Unknown : AllRequeriesExhausted [attempt == 3 & noAnswer]\n/ flagForReconciliation(), writeAudit()
+}
+
+Unknown --> Completed : RequeryOrReconciliationConfirmed\n/ finalizeChargeAndFeeLedger(), creditAgentCommissionIfAgent(),\n  recordTransition(), writeAudit(), enqueueNotification(Completed)
+
+Unknown --> Failed : RequeryOrReconciliationRefused\n/ recordTransition(), writeAudit(), enqueueNotification(Failed)
+
+state Failed {
+  Failed : entry / initiateHoldRelease()
+}
+
+Failed --> Refunded : HoldReleased\n/ createReleaseAndRefundLedgerEntries(),\n  recordTransition(), writeAudit(), enqueueNotification(Refunded)
+
+state Completed <<Final>>
+state Rejected <<Final>>
+state Refunded <<Final>>
+
+Completed --> [*]
+Rejected --> [*]
+Refunded --> [*]
+
+note right of Unknown
+  Held funds are never released while
+  in Unknown. Re-queries run after
+  1, 5, and 15 minutes (configurable).
+end note
+
+note left of Completed
+  Duplicate callbacks or invalid transitions
+  from Completed, Rejected, or Refunded
+  are rejected/ignored, logged to AuditRecord,
+  and produce no ledger or state changes.
+end note
+
+@enduml
