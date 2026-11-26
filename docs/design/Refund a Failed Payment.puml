@@ -1,0 +1,41 @@
+@startuml
+title Sequence Diagram - Refund a Failed Payment
+autonumber
+
+actor Customer
+participant "PayLink App" as App
+participant "Payment Module" as Payment
+participant "Biller Integration" as BillerInt
+participant "External Biller" as Biller
+participant "Accounts & Wallet" as Wallet
+participant "Notifications" as Notif
+
+note over Payment : State: FundsHeld
+
+Payment -> BillerInt : Send payment request
+note over Payment : State: SentToBiller
+BillerInt -> Biller : Pay bill
+
+alt Immediate Biller Refusal
+    Biller --> BillerInt : Refused (Error code)
+    BillerInt --> Payment : Payment refused
+else Timeout followed by Retry/Callback Refusal
+    Biller --x BillerInt : No response (Timeout)
+    BillerInt --> Payment : Timeout
+    note over Payment : State: Unknown (Funds remain held)
+    
+    BillerInt -> Biller : Re-query payment status
+    Biller --> BillerInt : Refused / Not received
+    BillerInt --> Payment : Confirmed failure
+end
+
+== Refund Process ==
+note over Payment : State: Failed
+Payment -> Wallet : Release held funds back to available balance
+Wallet --> Payment : Hold released (Refund ledger entry created)
+note over Payment : State: Refunded
+
+Payment -> Notif : Send failure & refund notice (SMS & Push)
+Notif --> Customer : Receive failure reason & refund confirmation
+Payment --> App : Display payment failed & refunded
+@enduml
